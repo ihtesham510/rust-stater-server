@@ -51,6 +51,23 @@ async fn create_task(conn: &sqlx::PgPool) -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 
+async fn delete_task_by_id(task_id: i32) -> Result<(), Box<dyn Error>> {
+    let url = get_database_url("DATABASE_URL").await?;
+    let conn = sqlx::postgres::PgPool::connect(&url).await?;
+
+    let query = "DELETE FROM tasks_table WHERE id = $1";
+
+    let result = sqlx::query(query).bind(task_id).execute(&conn).await?;
+
+    if result.rows_affected() > 0 {
+        println!("Task with ID {} deleted successfully", task_id);
+    } else {
+        println!("No task found with ID {}", task_id);
+    }
+
+    Ok(())
+}
+
 async fn get_all_tasks(conn: &sqlx::PgPool) -> Result<Vec<QuriedTasks>, Box<dyn Error>> {
     let q = "SELECT * FROM tasks_table";
     let query = sqlx::query(q);
@@ -102,18 +119,28 @@ async fn main() -> Result<(), Box<dyn Error>> {
         println!("Enter your Choice");
         println!("(1). Add Tasks");
         println!("(2). Show All Tasks");
+        println!("(3). Show All Tasks");
         io::stdin()
             .read_line(&mut choice)
             .expect("Cannot read line");
 
         if choice.trim().to_string() == "1" {
-            println!("adding task");
             create_task(&conn).await?;
             break;
         }
         if choice.trim().to_string() == "2" {
-            println!("Showing all tasks");
             show_all_tasks(&conn).await?;
+            break;
+        }
+
+        if choice.trim().to_string() == "3" {
+            let mut id = String::new();
+            println!("Enter the id to be deleted");
+            io::stdin().read_line(&mut id).expect("Cannot read line");
+            match id.trim().to_string().parse::<i32>() {
+                Ok(num) => delete_task_by_id(num).await?,
+                Err(e) => print!("Error while converting number {}", e),
+            }
             break;
         }
         println!("Wrong choice")
