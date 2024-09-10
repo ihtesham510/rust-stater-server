@@ -1,149 +1,63 @@
-use sqlx::Row;
-use std::env;
-use std::error::Error;
-use std::io;
+use axum::{routing::get, Router};
+use http::Method;
+use sqlx::postgres::PgPoolOptions;
+use std::time::Duration;
+use tokio::net::TcpListener;
+use tower_http::cors::Any;
+use tower_http::cors::CorsLayer;
+use tower_http::services::ServeDir;
+use tower_http::trace::TraceLayer;
 
-#[derive(Debug)]
-struct Task {
-    pub title: String,
-    pub description: String,
-}
+mod routes;
+mod services;
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct QuriedTasks {
-    pub id: i32,
-    pub title: String,
-    pub description: String,
-}
-
-async fn add_task(task: &Task, conn: &sqlx::PgPool) -> Result<(), Box<dyn Error>> {
-    let query = "INSERT INTO tasks_table (title, description, updated_at) VALUES ($1, $2, NOW())";
-
-    sqlx::query(&query)
-        .bind(&task.title)
-        .bind(&task.description)
-        .execute(conn)
-        .await?;
-
-    println!("task create successfully");
-
-    Ok(())
-}
-
-async fn create_task(conn: &sqlx::PgPool) -> Result<(), Box<dyn Error>> {
-    let mut task = String::new();
-    let mut description = String::new();
-
-    println!("Enter you Title");
-    io::stdin().read_line(&mut task).expect("Cannot read line");
-    println!("Enter you descrition");
-    io::stdin()
-        .read_line(&mut description)
-        .expect("Cannot read line");
-
-    let task = Task {
-        title: task.trim().to_string(),
-        description: description.trim().to_string(),
-    };
-
-    add_task(&task, &conn).await?;
-
-    Ok(())
-}
-
-async fn delete_task_by_id(task_id: i32) -> Result<(), Box<dyn Error>> {
-    let url = get_database_url("DATABASE_URL").await?;
-    let conn = sqlx::postgres::PgPool::connect(&url).await?;
-
-    let query = "DELETE FROM tasks_table WHERE id = $1";
-
-    let result = sqlx::query(query).bind(task_id).execute(&conn).await?;
-
-    if result.rows_affected() > 0 {
-        println!("Task with ID {} deleted successfully", task_id);
-    } else {
-        println!("No task found with ID {}", task_id);
-    }
-
-    Ok(())
-}
-
-async fn get_all_tasks(conn: &sqlx::PgPool) -> Result<Vec<QuriedTasks>, Box<dyn Error>> {
-    let q = "SELECT * FROM tasks_table";
-    let query = sqlx::query(q);
-    let rows = query.fetch_all(conn).await?;
-    let tasks = rows
-        .iter()
-        .map(|row| QuriedTasks {
-            id: row.get("id"),
-            title: row.get("title"),
-            description: row.get("description"),
-        })
-        .collect();
-    Ok(tasks)
-}
-
-async fn show_all_tasks(conn: &sqlx::PgPool) -> Result<(), Box<dyn Error>> {
-    match get_all_tasks(&conn).await {
-        Ok(tasks) => {
-            let json_output = serde_json::to_string_pretty(&tasks).unwrap();
-            println!("{}", json_output);
-        }
-        Err(e) => {
-            eprintln!("Error fetching tasks: {}", e);
-        }
-    }
-    Ok(())
-}
-async fn get_database_url(key: &str) -> Result<String, Box<dyn Error>> {
-    // Attempt to get the environment variable
-    let url = env::var(key.trim())
-        .map(|value| value.trim().to_string())
-        .map_err(|e| {
-            println!("Couldn't read [{}]: {}", key, e); // Log the error
-            e
-        })?;
-
-    Ok(url)
-}
 #[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    dotenv::dotenv().ok();
-    let url = get_database_url(&"DATABASE_URL".to_string()).await?;
-    let conn = sqlx::postgres::PgPool::connect(&url).await?;
+async fn main() {
+    services::build_client::build_client("./client/".to_string());
+    dotenvy::dotenv().expect("Cannot access dot env files");
 
-    sqlx::migrate!("./migrations").run(&conn).await?;
+    let server_url = std::env::var("SERVER_URL").unwrap_or("127.0.0.1:3000".to_owned());
+    let db_url = std::env::var("DATABASE_URL").expect("Database Url not found");
 
-    loop {
-        let mut choice = String::new();
-        println!("Enter your Choice");
-        println!("(1). Add Tasks");
-        println!("(2). Show All Tasks");
-        println!("(3). Show All Tasks");
-        io::stdin()
-            .read_line(&mut choice)
-            .expect("Cannot read line");
+    tracing_subscriber::fmt()
+        .with_max_level(tracing::Level::DEBUG)
+        .init();
 
-        if choice.trim().to_string() == "1" {
-            create_task(&conn).await?;
-            break;
-        }
-        if choice.trim().to_string() == "2" {
-            show_all_tasks(&conn).await?;
-            break;
-        }
+    let db_pool = PgPoolOptions::new()
+        .max_connections(64)
+        .acquire_timeout(Duration::from_secs(9))
+        .connect(&db_url)
+        .await
+        .expect("cannot connect to the database");
 
-        if choice.trim().to_string() == "3" {
-            let mut id = String::new();
-            println!("Enter the id to be deleted");
-            io::stdin().read_line(&mut id).expect("Cannot read line");
-            match id.trim().to_string().parse::<i32>() {
-                Ok(num) => delete_task_by_id(num).await?,
-                Err(e) => print!("Error while converting number {}", e),
-            }
-            break;
-        }
-        println!("Wrong choice")
-    }
-    Ok(())
+    let listner = TcpListener::bind(server_url)
+        .await
+        .expect("Cannot listen to the port");
+
+    println!("Server is running on {}", listner.local_addr().unwrap());
+
+    let serve_dir = ServeDir::new("./client/dist/");
+    let cors = CorsLayer::new()
+        .allow_origin(Any)
+        .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE])
+        .allow_headers(Any);
+    let app = Router::new()
+        .nest_service("/", serve_dir)
+        .route(
+            "/api/tasks",
+            get(routes::tasks::get_tasks).post(routes::tasks::create_task),
+        )
+        .route(
+            "/api/tasks/:id",
+            get(routes::tasks::get_task_by_id)
+                .patch(routes::tasks::update_task)
+                .delete(routes::tasks::delete_task_by_id),
+        )
+        .layer(TraceLayer::new_for_http())
+        .route_layer(cors)
+        .with_state(db_pool);
+
+    axum::serve(listner, app)
+        .await
+        .expect("Cannot start the server");
 }
