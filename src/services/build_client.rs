@@ -4,7 +4,7 @@ pub fn build_client(directory: String) {
     let command = Command::new("npm")
         .arg("run")
         .arg("build")
-        .current_dir(directory.trim().to_string())
+        .current_dir(directory.trim())
         .output()
         .expect("Failed to run npm run build");
     if command.status.success() {

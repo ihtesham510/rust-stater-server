@@ -12,15 +12,15 @@ pub async fn get_tasks(
         .fetch_all(&db_pool)
         .await
         .map_err(|_| {
-            return (
+            (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(ErrorBody {
                     message: "Error while getting tasks".to_string(),
                 }),
-            );
+            )
         })?;
 
-    return Ok((StatusCode::OK, Json(rows)));
+    Ok((StatusCode::OK, Json(rows)))
 }
 
 pub async fn get_task_by_id(
@@ -35,14 +35,14 @@ pub async fn get_task_by_id(
     .fetch_one(&db_pool)
     .await
     .map_err(|_| {
-        return (
+        (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorBody {
                 message: "Error while getting task".to_string(),
             }),
-        );
+        )
     })?;
-    return Ok((StatusCode::OK, Json(row)));
+    Ok((StatusCode::OK, Json(row)))
 }
 
 pub async fn delete_task_by_id(
@@ -53,12 +53,12 @@ pub async fn delete_task_by_id(
         .execute(&db_pool)
         .await
         .map_err(|_| {
-            return (
+            (
                 StatusCode::INTERNAL_SERVER_ERROR,
                 Json(DeleteJsonRes {
                     message: "Internal Server Errro".to_string(),
                 }),
-            );
+            )
         })?;
 
     Ok((
@@ -81,12 +81,12 @@ pub async fn create_task(
     .fetch_one(&db_pool)
     .await
     .map_err(|_| {
-        return (
+         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorBody {
                 message: "Error while creating task".to_string(),
             }),
-        );
+        )
     })?;
 
     Ok((StatusCode::OK, Json(row)))
@@ -107,12 +107,12 @@ pub async fn update_task(
     .fetch_one(&db_pool)
     .await
     .map_err(|_| {
-        return (
+         (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(ErrorBody {
                 message: "Error while creating task".to_string(),
             }),
-        );
+        )
     })?;
 
     Ok((StatusCode::OK, Json(row)))
